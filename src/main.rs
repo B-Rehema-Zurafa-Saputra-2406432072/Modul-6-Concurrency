@@ -2,6 +2,7 @@ use std::{
     fs,
     io::{prelude::*, BufReader},
     net::{TcpListener, TcpStream},
+    process,
     thread,
     time::Duration,
 };
@@ -10,7 +11,12 @@ use hello::ThreadPool;
 
 fn main() {
     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
-    let pool = ThreadPool::new(4);
+    
+    // Handle the Result returned by build
+    let pool = ThreadPool::build(4).unwrap_or_else(|err| {
+        eprintln!("Problem creating the thread pool: {err}");
+        process::exit(1);
+    });
 
     for stream in listener.incoming() {
         let stream = stream.unwrap();

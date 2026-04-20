@@ -1,7 +1,18 @@
 use std::{
-    sync::{Arc, Mutex, mpsc},
+    fmt,
+    sync::{mpsc, Arc, Mutex},
     thread,
 };
+
+// Custom error type for invalid pool sizes
+#[derive(Debug)]
+pub struct PoolCreationError;
+
+impl fmt::Display for PoolCreationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ThreadPool size must be greater than zero.")
+    }
+}
 
 pub struct ThreadPool {
     workers: Vec<Worker>,
@@ -11,18 +22,17 @@ pub struct ThreadPool {
 type Job = Box<dyn FnOnce() + Send + 'static>;
 
 impl ThreadPool {
-    /// Create a new ThreadPool.
+    /// Create a new ThreadPool using `build`.
     ///
     /// The size is the number of threads in the pool.
-    ///
-    /// # Panics
-    ///
-    /// The `new` function will panic if the size is zero.
-    pub fn new(size: usize) -> ThreadPool {
-        assert!(size > 0);
+    /// Returns a Result which is Ok if the size > 0, and Err otherwise.
+    pub fn build(size: usize) -> Result<ThreadPool, PoolCreationError> {
+        // Return an Error instead of panicking
+        if size == 0 {
+            return Err(PoolCreationError);
+        }
 
         let (sender, receiver) = mpsc::channel();
-
         let receiver = Arc::new(Mutex::new(receiver));
 
         let mut workers = Vec::with_capacity(size);
@@ -31,7 +41,7 @@ impl ThreadPool {
             workers.push(Worker::new(id, Arc::clone(&receiver)));
         }
 
-        ThreadPool { workers, sender }
+        Ok(ThreadPool { workers, sender })
     }
 
     pub fn execute<F>(&self, f: F)
@@ -39,7 +49,6 @@ impl ThreadPool {
         F: FnOnce() + Send + 'static,
     {
         let job = Box::new(f);
-
         self.sender.send(job).unwrap();
     }
 }
@@ -51,14 +60,10 @@ struct Worker {
 
 impl Worker {
     fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Worker {
-        let thread = thread::spawn(move || {
-            loop {
-                let job = receiver.lock().unwrap().recv().unwrap();
-
-                println!("Worker {id} got a job; executing.");
-
-                job();
-            }
+        let thread = thread::spawn(move || loop {
+            let job = receiver.lock().unwrap().recv().unwrap();
+            println!("Worker {} got a job; executing.", id);
+            job();
         });
 
         Worker { id, thread }
